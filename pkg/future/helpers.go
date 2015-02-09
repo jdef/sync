@@ -10,7 +10,17 @@ func IsReady(f Interface) bool {
 	}
 }
 
-/// convenience func that returns true if f.Done() is closed
+// convenience func that returns true if f.Done() is closed and f.Err() != nil
+func HasError(f Interface) bool {
+	select {
+	case <-f.Done():
+		return f.Err() != nil && !IsDiscarded(f)
+	default:
+		return false
+	}
+}
+
+// convenience func that returns true if f.Done() is closed
 func IsDone(f Interface) bool {
 	select {
 	case <-f.Done():

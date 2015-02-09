@@ -1,28 +1,17 @@
 package future
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func nilGetter() (interface{}, error) {
-	return nil, nil
-}
-
-func intpGetter() (interface{}, error) {
-	i := 1
-	return &i, nil
-}
-
-func intGetter() (interface{}, error) {
-	i := 2
-	return i, nil
-}
-
 func TestNewFuture_nilType(t *testing.T) {
 	assert := assert.New(t)
-	f := New(nil, nilGetter)
+	f := New(nil, func() (interface{}, error) {
+		return nil, nil
+	})
 
 	assert.NotNil(f)
 	Wait(f)
@@ -34,7 +23,10 @@ func TestNewFuture_nilType(t *testing.T) {
 func TestNewFuture_intpType(t *testing.T) {
 	assert := assert.New(t)
 	var itype int
-	f := New(&itype, intpGetter)
+	f := New(&itype, func() (interface{}, error) {
+		i := 1
+		return &i, nil
+	})
 
 	assert.NotNil(f)
 	Wait(f)
@@ -48,16 +40,55 @@ func TestNewFuture_intpType(t *testing.T) {
 func TestNewFuture_intType(t *testing.T) {
 	assert := assert.New(t)
 	var itype int
-	f := New(itype, intGetter)
+	f := New(itype, func() (interface{}, error) {
+		i := 2
+		return i, nil
+	})
 
 	assert.NotNil(f)
 	Wait(f)
+	assert.True(IsDone(f))
+	assert.False(HasError(f))
+
 	err := f.Err()
 	assert.Nil(err)
+	assert.True(IsReady(f))
+	assert.False(IsDiscarded(f))
 
 	obj := f.Result()
 	assert.IsType(itype, obj)
 	assert.Equal(2, obj)
+
+	f.Discard()
+	assert.True(IsDone(f))
+	assert.True(IsDiscarded(f))
+	assert.False(IsReady(f))
+}
+
+func TestNewFuture_intTypeWithError(t *testing.T) {
+	assert := assert.New(t)
+	e := errors.New("expected error")
+	var itype int
+	f := New(itype, func() (x interface{}, err error) {
+		err = e
+		return
+	})
+
+	assert.NotNil(f)
+	Wait(f)
+	assert.True(IsDone(f))
+	assert.True(HasError(f))
+
+	err := f.Err()
+	assert.NotNil(err)
+	assert.Equal(e, err)
+	assert.False(IsReady(f))
+	assert.False(IsDiscarded(f))
+
+	f.Discard()
+	assert.True(IsDone(f))
+	assert.True(IsDiscarded(f))
+	assert.False(HasError(f))
 }
 
 func TestNewFuture_interfaceTypeNilInCtor(t *testing.T) {
