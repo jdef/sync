@@ -242,7 +242,7 @@ func (r *returned) exec(ptrToType interface{}, f func() (interface{}, error)) {
 		// "caller specified a wildcard result type, so anything goes"
 	} else if spectype, resulttype := sv.Type(), rv.Type(); spectype != resulttype {
 		// spec and result are both non-nil and the types don't match
-		reportedError = fmt.Errorf("expected result of type %v instead of type %v", spectype, resulttype)
+		reportedError = newTypeError(fmt.Sprintf("expected result of type %v instead of type %v", spectype, resulttype))
 	}
 }
 

@@ -119,7 +119,32 @@ func TestNewFuture_intTypeWithError(t *testing.T) {
 	assert.False(HasError(f))
 }
 
-func TestNewFuture_interfaceTypeNilInCtor(t *testing.T) {
+func TestNewFuture_intTypeIllegalResultType(t *testing.T) {
+	assert := assert.New(t)
+	var itype int
+	f := New(itype, func() (interface{}, error) {
+		return "", nil
+	})
+
+	assert.NotNil(f)
+	Wait(f)
+	assert.True(IsDone(f))
+	assert.True(HasError(f))
+
+	err := f.Err()
+	assert.NotNil(err)
+	assert.IsType(nilTypeError, err, err.Error()) // type mismatch error
+	assert.NotEqual(nilTypeError, err, err.Error())
+	assert.False(IsReady(f))
+	assert.False(IsDiscarded(f))
+
+	f.Discard()
+	assert.True(IsDone(f))
+	assert.True(IsDiscarded(f))
+	assert.False(HasError(f))
+}
+
+func TestNewFuture_interfaceTypeNilSpecType(t *testing.T) {
 	assert := assert.New(t)
 	var itype a
 	f := New(itype, func() (interface{}, error) {
