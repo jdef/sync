@@ -35,11 +35,39 @@ type Interface interface {
 	// associates the result of the callback with the future that is returned
 	// to the caller
 	Later(func(interface{}) Interface) Interface
+	// Installs a callback that is executed when this future is ready and
+	// associates the result of the callback with the future that is returned
+	// to the caller
+	Then(func(interface{}) (interface{}, error)) Interface
+}
+
+func doThen(r Interface, callback func(interface{}) (interface{}, error)) Interface {
+	type t struct {
+		i interface{}
+		e error
+	}
+	ch := make(chan *t, 1)
+	OnReady(r, func(priorResult interface{}) {
+		defer close(ch)
+		val := &t{}
+		val.i, val.e = callback(priorResult)
+		ch <- val
+	})
+	// wildcard future spec type allows any result type
+	return New(nil, func() (interface{}, error) {
+		if val, ok := <-ch; !ok {
+			//programming error
+			panic("channel closed before presenting a result")
+		} else {
+			return val.i, val.e
+		}
+	})
 }
 
 func doLater(r Interface, callback func(interface{}) Interface) Interface {
 	ch := make(chan Interface, 1)
 	OnReady(r, func(priorResult interface{}) {
+		defer close(ch)
 		ch <- callback(priorResult)
 	})
 	return &delegate{incoming: ch}
@@ -56,8 +84,8 @@ func (d *delegate) fill() Interface {
 		if other, ok := <-d.incoming; ok {
 			d.other = other
 		} else {
-			// programming
-			panic("incoming channel closed without presenting a future")
+			// programming error
+			panic("incoming channel closed before presenting a future")
 		}
 	})
 	return d.other
@@ -88,6 +116,11 @@ func (d *delegate) Later(callback func(interface{}) Interface) Interface {
 	return doLater(d, callback)
 }
 
+func (d *delegate) Then(callback func(interface{}) (interface{}, error)) Interface {
+	// executes async so we don't want to fill() here
+	return doThen(d, callback)
+}
+
 type nilf struct{}
 
 func (d *nilf) Done() <-chan struct{} {
@@ -114,6 +147,10 @@ func (d *nilf) Later(callback func(interface{}) Interface) Interface {
 	return nilFuture
 }
 
+func (d *nilf) Then(callback func(interface{}) (interface{}, error)) Interface {
+	return nilFuture
+}
+
 type returned struct {
 	err         error
 	done        chan struct{}
@@ -129,6 +166,10 @@ func (r *returned) Result() interface{} {
 
 func (r *returned) Later(callback func(interface{}) Interface) Interface {
 	return doLater(r, callback)
+}
+
+func (r *returned) Then(callback func(interface{}) (interface{}, error)) Interface {
+	return doThen(r, callback)
 }
 
 func (r *returned) Discarded() <-chan struct{} {
@@ -173,32 +214,34 @@ func (r *returned) exec(ptrToType interface{}, f func() (interface{}, error)) {
 	var reportedError error
 	defer func() { r.markDone(reportedError) }() // lazy eval of reportedError
 
-	spectype, err := enforcePtr(ptrToType)
-	if err != nil {
-		reportedError = err
-		return
-	}
-
 	r.result, reportedError = f()
-	if resulttype, err := enforcePtr(r.result); err != nil {
-		if err == nilTypeError {
-			switch spectype.Kind() {
-			// result is allowed to be of a <nil> type only if the spectype is compatible with
-			// those documented in reflect.Value.IsNil()
-			case reflect.Chan, reflect.Func, reflect.Interface,
-				reflect.Map, reflect.Ptr, reflect.Slice:
-				return
-			// zero-values allowed for most other kinds
-			case reflect.Bool, reflect.Uintptr, reflect.Struct, reflect.String, reflect.Array,
-				reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-				reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
-				r.result = reflect.Zero(spectype).Interface()
-				return
-			}
+
+	sv := reflect.ValueOf(ptrToType)
+	rv := reflect.ValueOf(r.result)
+
+	if rv.Kind() == reflect.Invalid {
+		switch sv.Kind() {
+		// result is allowed to be of a <nil> type only if the spec value kind is compatible with
+		// nillable types (mainly those documented in reflect.Value.IsNil())
+		case reflect.Chan, reflect.Func, reflect.Interface,
+			reflect.Map, reflect.Ptr, reflect.Slice, reflect.Invalid:
+
+		// zero-values allowed for most other kinds
+		case reflect.Bool, reflect.Uintptr, reflect.Struct, reflect.String, reflect.Array,
+			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+			r.result = reflect.Zero(sv.Type()).Interface()
+
+		default:
+			reportedError = nilTypeError
 		}
-		reportedError = err
-	} else if spectype != resulttype {
+		return
+	} else if sv.Kind() == reflect.Invalid {
+		// spec was <nil>, but we have a non-<nil> result: interpret this as
+		// "caller specified a wildcard result type, so anything goes"
+	} else if spectype, resulttype := sv.Type(), rv.Type(); spectype != resulttype {
+		// spec and result are both non-nil and the types don't match
 		reportedError = fmt.Errorf("expected result of type %v instead of type %v", spectype, resulttype)
 	}
 }
@@ -208,17 +251,4 @@ func (r *returned) markDone(err error) {
 		defer close(r.done)
 		r.err = err
 	})
-}
-
-// EnforcePtr ensures that obj is a pointer of some sort. Returns a reflect.Type
-// of the pointer type. The pointer may be nil. Returns an error if this is not possible.
-// HACK(jdef) hacked from https://github.com/GoogleCloudPlatform/kubernetes/blob/release-0.8/pkg/conversion/meta.go
-func enforcePtr(obj interface{}) (t reflect.Type, err error) {
-	v := reflect.ValueOf(obj)
-	if v.Kind() == reflect.Invalid {
-		err = nilTypeError
-	} else {
-		t = v.Type()
-	}
-	return
 }

@@ -16,8 +16,36 @@ func TestNewFuture_nilType(t *testing.T) {
 	assert.NotNil(f)
 	Wait(f)
 	err := f.Err()
-	assert.NotNil(err)
-	assert.Equal(nilTypeError, err, err.Error())
+	assert.Nil(err)
+	assert.True(IsReady(f))
+	assert.Nil(f.Result())
+}
+
+func TestNewFuture_nilTypeNonNilResult(t *testing.T) {
+	assert := assert.New(t)
+	f := New(nil, func() (interface{}, error) {
+		i := 1
+		return i, nil
+	})
+
+	assert.NotNil(f)
+	Wait(f)
+	err := f.Err()
+	assert.Nil(err)
+	assert.Equal(1, f.Result())
+}
+
+func TestNewFuture_nilTypeZeroValResult(t *testing.T) {
+	assert := assert.New(t)
+	f := New(nil, func() (interface{}, error) {
+		return &bar{}, nil
+	})
+
+	assert.NotNil(f)
+	Wait(f)
+	err := f.Err()
+	assert.Nil(err)
+	assert.Equal(&bar{}, f.Result())
 }
 
 func TestNewFuture_intpType(t *testing.T) {
@@ -101,8 +129,8 @@ func TestNewFuture_interfaceTypeNilInCtor(t *testing.T) {
 	assert.NotNil(f)
 	Wait(f)
 	err := f.Err()
-	assert.NotNil(err)
-	assert.Equal(nilTypeError, err, err.Error())
+	assert.Nil(err)
+	assert.Nil(f.Result())
 }
 
 func TestNewFuture_interfaceTypeNilInGetter(t *testing.T) {
