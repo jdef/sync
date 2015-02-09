@@ -77,11 +77,11 @@ func OnReady(r Interface, f func(interface{})) {
 }
 
 // installs a callback handler to be invoked once the discard channel has been closed
-func OnDiscard(r Interface, f func(Interface)) {
+func OnDiscard(r Interface, f func()) {
 	go func() {
 		select {
 		case <-r.Discarded():
-			f(r)
+			f()
 		}
 	}()
 }

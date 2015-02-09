@@ -36,7 +36,7 @@ func New(ptrToType interface{}) Interface {
 		ch: make(chan interface{}, 1),
 	}
 	b.future = future.New(ptrToType, b.Get)
-	future.OnDiscard(b.future, func(future.Interface) {
+	future.OnDiscard(b.future, func() {
 		// b.Discard will also trigger a discard of the future,
 		// but that turns into a noop since the future is already
 		// discarded.
